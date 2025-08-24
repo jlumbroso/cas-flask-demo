@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: cas-flask-demo
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: oregon
+    healthCheckPath: /healthz
+    envVars:
+      - key: CAS_SERVER
+        sync: false
+      - key: CAS_LOGIN_ROUTE
+        value: /index.php/login
+      - key: CAS_VALIDATE_ROUTE
+        value: /serviceValidate.php
+      - key: SECRET_KEY
+        generateValue: true
