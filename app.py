@@ -1,87 +1,177 @@
 import os
-from urllib.parse import urlencode
-from flask import Flask, redirect, request, session, url_for, render_template_string
-from werkzeug.middleware.proxy_fix import ProxyFix
-from cas import CASClientV2
+import logging
+from urllib.parse import quote
+from flask import Flask, redirect, request, session, url_for, Response
+import requests
+import xml.etree.ElementTree as ET
 
-# QuickCAS layout (no rewrites):
-#   - LOGIN: /login.php              (Shib-gated)
-#   - VALIDATE: /serviceValidate.php (public)
-class CASClientV2Quick(CASClientV2):
-    url_suffix = 'serviceValidate.php'  # use the PHP validator
-    def get_login_url(self, service_url=None, renew=False, gateway=False, extra_params=None):
-        if service_url is None:
-            service_url = self.service_url
-        params = {'service': service_url}
-        if renew:   params['renew'] = 'true'
-        if gateway: params['gateway'] = 'true'
-        if extra_params: params.update(extra_params)
-        base = self.server_url.rstrip('/')
-        return f"{base}/login.php?{urlencode(params, doseq=True)}"
-
-def make_cas_client(service_url: str):
-    server_base = os.environ.get("CAS_SERVER_BASE", "https://alliance.seas.upenn.edu/~lumbroso/cgi-bin/cas/")
-    verify_ssl  = os.environ.get("CAS_VERIFY_SSL", "true").lower() != "false"
-    return CASClientV2Quick(service_url=service_url, server_url=server_base, verify_ssl_certificate=verify_ssl)
-
+# ----------------------------------------------------------------------------
+# Config
+# ----------------------------------------------------------------------------
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "dev-not-secure")
 
-# Make url_for() honor Render’s X-Forwarded headers (correct https URLs)
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1, x_prefix=1)
+# session/secret
+app.secret_key = os.environ.get("SECRET_KEY", os.urandom(32))
+app.config.update(
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=True,  # Render serves HTTPS
+)
 
-def service_url():
-    # Absolute callback URL used for CAS "service"
-    return request.url_root.rstrip('/') + url_for("callback")
+CAS_BASE = os.environ.get("CAS_BASE", "").rstrip("/")
+# Prefer explicit SERVICE_BASE_URL; fall back to request.url_root
+SERVICE_BASE_URL = os.environ.get("SERVICE_BASE_URL", "").rstrip("/")
+DEBUG_XML = os.environ.get("DEBUG_XML", "false").lower() in {"1", "true", "yes", "on"}
+
+logger = logging.getLogger("cas-demo")
+logging.basicConfig(level=logging.INFO)
+
+def external_service_base():
+    if SERVICE_BASE_URL:
+        return SERVICE_BASE_URL
+    # derive from incoming request
+    return request.url_root.rstrip("/")
+
+def cas_login_url(service_url: str) -> str:
+    # use /login.php on your proxy; no rewrites assumed
+    return f"{CAS_BASE}/login.php?service={quote(service_url, safe=':/?&=')}"
+
+def cas_service_validate_url() -> str:
+    # use /serviceValidate.php (public)
+    return f"{CAS_BASE}/serviceValidate.php"
+
+# ----------------------------------------------------------------------------
+# CAS XML parsing (supports both canonical and legacy attribute styles)
+# ----------------------------------------------------------------------------
+def parse_cas_v2(xml_text: str):
+    ns = {"cas": "http://www.yale.edu/tp/cas"}
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError as e:
+        return None, {}, f"xml parse error: {e}"
+
+    success = root.find("cas:authenticationSuccess", ns)
+    if success is None:
+        fail = root.find("cas:authenticationFailure", ns)
+        msg = (fail.text or "validation failed") if fail is not None else "validation failed"
+        return None, {}, msg
+
+    user_el = success.find("cas:user", ns)
+    user = (user_el.text or "").strip() if user_el is not None else ""
+
+    attrs = {}
+    # Canonical block
+    block = success.find("cas:attributes", ns)
+    if block is not None:
+        for child in list(block):
+            key = child.tag.split('}', 1)[1] if '}' in child.tag else child.tag
+            val = (child.text or "").strip()
+            if key in attrs:
+                if isinstance(attrs[key], list):
+                    attrs[key].append(val)
+                else:
+                    attrs[key] = [attrs[key], val]
+            else:
+                attrs[key] = val
+
+    # Legacy/sibling attributes with name="..."
+    for xp in ("cas:attribute", "cas:attributes/cas:attribute"):
+        for a in success.findall(xp, ns):
+            name = a.attrib.get("name")
+            if not name:
+                continue
+            val = (a.text or "").strip()
+            if name in attrs:
+                if isinstance(attrs[name], list):
+                    attrs[name].append(val)
+                else:
+                    attrs[name] = [attrs[name], val]
+            else:
+                attrs[name] = val
+
+    return user, attrs, None
+
+# ----------------------------------------------------------------------------
+# Routes
+# ----------------------------------------------------------------------------
+@app.get("/healthz")
+def healthz():
+    return "ok", 200, {"Content-Type": "text/plain"}
 
 @app.get("/")
 def home():
-    if "user" in session:
-        return render_template_string(
-            "<h1>Logged in</h1><p><b>User:</b> {{ user }}</p>"
-            "<p><a href='{{ url_for('profile') }}'>Profile</a> · "
-            "<a href='{{ url_for('logout') }}'>Logout</a></p>",
-            user=session["user"],
+    if not CAS_BASE:
+        return (
+            "<h1>CAS demo</h1>"
+            "<p><b>Missing env:</b> set <code>CAS_BASE</code> to your proxy base URL.</p>",
+            200,
         )
-    return redirect(url_for("login"))
+    if "cas_user" in session:
+        return redirect(url_for("profile"))
+    return (
+        "<h1>CAS demo</h1>"
+        "<p><a href='/login'>Login</a></p>",
+        200,
+    )
 
 @app.get("/login")
 def login():
-    # If CAS already sent us back with a ticket, bounce to /callback
-    if request.args.get("ticket"):
-        return redirect(url_for("callback", **request.args))
-    client = make_cas_client(service_url=service_url())
-    return redirect(client.get_login_url())
+    svc = external_service_base() + url_for("callback")
+    return redirect(cas_login_url(svc))
 
 @app.get("/callback")
 def callback():
     ticket = request.args.get("ticket")
     if not ticket:
-        return "Missing CAS ticket", 400
-    client = make_cas_client(service_url=service_url())
-    user, attrs, pgtiou = client.verify_ticket(ticket)
-    if not user:
-        return "CAS validation failed", 403
-    session["user"]  = user
-    session["attrs"] = attrs or {}
+        return "Missing ticket", 400
+
+    svc = external_service_base() + url_for("callback")
+    params = {"service": svc, "ticket": ticket}
+
+    try:
+        r = requests.get(cas_service_validate_url(), params=params, allow_redirects=False, timeout=10)
+    except requests.RequestException as e:
+        return f"Ticket verify request failed: {e}", 502
+
+    if r.status_code in (301, 302):
+        # If you see this, serviceValidate is likely Shib-gated; fix .htaccess on the proxy.
+        loc = r.headers.get("Location", "")
+        return f"Unexpected redirect during validation: {loc}", 502
+
+    xml = r.text
+    if DEBUG_XML:
+        logger.info("CAS XML:\n%s", xml)
+    user, attrs, err = parse_cas_v2(xml)
+    if err or not user:
+        return f"<h1>Login failed</h1><pre>{(err or 'unknown error')}</pre><pre>{xml}</pre>", 403
+
+    session["cas_user"] = user
+    session["cas_attrs"] = attrs
     return redirect(url_for("profile"))
 
 @app.get("/profile")
 def profile():
-    if "user" not in session:
-        return redirect(url_for("login"))
-    return render_template_string(
-        "<h1>Profile</h1><p><b>User:</b> {{ user }}</p>"
-        "<h2>Attributes</h2><pre>{{ attrs|tojson(indent=2) }}</pre>"
-        "<p><a href='{{ url_for('logout') }}'>Logout</a></p>",
-        user=session["user"], attrs=session.get("attrs", {}),
+    if "cas_user" not in session:
+        return redirect(url_for("home"))
+    user = session.get("cas_user")
+    attrs = session.get("cas_attrs", {})
+    # pretty, but tiny
+    return (
+        f"<h1>Profile</h1>"
+        f"<p><b>User:</b> {user}</p>"
+        f"<h2>Attributes</h2>"
+        f"<pre>{attrs}</pre>"
+        f"<p><a href='{url_for('logout')}'>Logout</a></p>",
+        200,
     )
-
-@app.get("/healthz")
-def healthz():
-    return "ok", 200
 
 @app.get("/logout")
 def logout():
     session.clear()
-    return "Logged out locally. <a href='/'>Home</a>"
+    return redirect(url_for("home"))
+
+# ----------------------------------------------------------------------------
+# Entrypoint (Render sets $PORT)
+# ----------------------------------------------------------------------------
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", "5000"))
+    app.run(host="0.0.0.0", port=port, debug=True)

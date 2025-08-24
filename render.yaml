@@ -1,15 +1,25 @@
 services:
   - type: web
     name: cas-flask-demo
-    env: docker
+    runtime: python
     plan: free
-    autoDeploy: true
-    healthCheckPath: /healthz
+    region: virginia
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.4
       - key: SECRET_KEY
         generateValue: true
-      # Base should NOT include index.php
-      - key: CAS_SERVER_BASE
-        value: https://alliance.seas.upenn.edu/~lumbroso/cgi-bin/cas/
-      - key: CAS_VERIFY_SSL
-        value: "true"
+      - key: CAS_BASE
+        # Example: your Quick-CAS proxy base (no trailing slash)
+        # value: https://alliance.seas.upenn.edu/~lumbroso/cgi-bin/cas
+        sync: false
+      - key: SERVICE_BASE_URL
+        # Optional: set to your Render URL to avoid proxy/header confusion
+        # value: https://cas-flask-demo.onrender.com
+        sync: false
+      - key: DEBUG_XML
+        value: "false"
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 2 -k gthread -b 0.0.0.0:$PORT app:app
+    healthCheckPath: /healthz
+    autoDeploy: yes
