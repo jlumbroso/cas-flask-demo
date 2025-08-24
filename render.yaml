@@ -5,7 +5,12 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn -w 2 -k gthread -t 60 -b 0.0.0.0:$PORT app:app
+    region: virginia
+    healthCheckPath: /healthz
+    autoDeploy: yes
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.4
       - key: SECRET_KEY
         generateValue: true
       - key: CAS_SERVER_ROOT
