@@ -1,21 +1,22 @@
 # CAS Flask Demo (CAS v3 via python-cas)
 
 A minimal Flask app that authenticates with a CAS server using **python-cas** (CAS 3.0 / `p3/serviceValidate`).  
-Designed to work with your **Quick CAS Proxy** hosted on Penn SEAS (Alliance).
+
+Designed to work with a [**Quick CAS Proxy**](https://github.com/jlumbroso/quick-cas-proxy) hosted on Penn SEAS (Alliance).
 
 ## How it works
 
-- The app sends users to your proxy's **/login**.
+- The app sends users to the proxy's **/login.php**.
 - The CAS server redirects back to `/callback?ticket=...`.
-- `python-cas` calls **p3/serviceValidate**, parses the XML, and provides the username and attributes.
+- `python-cas` calls **p3_serviceValidate.php**, parses the XML, and provides the username and attributes.
 - The profile page shows both.
 
 ## Configuration
 
-Set the CAS root to your proxy’s **index.php** dispatcher (trailing slash required):
+Set the CAS root to your proxy’s **cas** folder (trailing slash required):
 
 ```
-CAS_SERVER_ROOT=https://alliance.seas.upenn.edu/~lumbroso/cgi-bin/cas/index.php/
+CAS_SERVER_ROOT=https://alliance.seas.upenn.edu/~lumbroso/cgi-bin/cas/
 ```
 
 Environment variables:
@@ -31,7 +32,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 export SECRET_KEY="dev-secret"
-export CAS_SERVER_ROOT="https://alliance.seas.upenn.edu/~lumbroso/cgi-bin/cas/index.php/"
+export CAS_SERVER_ROOT="https://alliance.seas.upenn.edu/~lumbroso/cgi-bin/cas/"
 python app.py  # http://127.0.0.1:5000/
 ```
 
