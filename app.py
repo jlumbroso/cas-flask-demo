@@ -18,7 +18,6 @@ if not SERVICE_URL:
 
 def cas_client(service_url):
     return CASClientV3PHP(
-        version=3,
         server_url=CAS_SERVER_ROOT,
         service_url=service_url,
         verify_ssl_certificate=True,
