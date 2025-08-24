@@ -3,23 +3,10 @@ services:
     name: cas-flask-demo
     runtime: python
     plan: free
-    region: virginia
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 2 -k gthread -t 60 -b 0.0.0.0:$PORT app:app
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.12.4
       - key: SECRET_KEY
         generateValue: true
-      - key: CAS_BASE
-        # Example: your Quick-CAS proxy base (no trailing slash)
-        # value: https://alliance.seas.upenn.edu/~lumbroso/cgi-bin/cas
-        sync: false
-      - key: SERVICE_BASE_URL
-        # Optional: set to your Render URL to avoid proxy/header confusion
-        # value: https://cas-flask-demo.onrender.com
-        sync: false
-      - key: DEBUG_XML
-        value: "false"
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -w 2 -k gthread -b 0.0.0.0:$PORT app:app
-    healthCheckPath: /healthz
-    autoDeploy: yes
+      - key: CAS_SERVER_ROOT
+        value: "https://alliance.seas.upenn.edu/~lumbroso/cgi-bin/cas/index.php/"

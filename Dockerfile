@@ -1,8 +1,14 @@
+# Optional Docker-based deploy (Render can also use render.yaml with runtime: python)
 FROM python:3.12-slim
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+
 WORKDIR /app
-COPY requirements.txt /app/
+ENV PYTHONDONTWRITEBYTECODE=1     PYTHONUNBUFFERED=1
+
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py /app/
+
+COPY . .
+
+# Render provides PORT; default fallback for local
 ENV PORT=10000
-CMD exec gunicorn --bind 0.0.0.0:${PORT} --workers 2 --threads 4 app:app
+CMD ["gunicorn", "-w", "2", "-k", "gthread", "-t", "60", "-b", "0.0.0.0:${PORT}", "app:app"]
