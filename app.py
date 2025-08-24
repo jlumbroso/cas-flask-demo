@@ -24,6 +24,11 @@ def cas_client(service_url):
     )
 
 
+@app.get("/healthz")
+def healthz():
+    return "ok", 200, {"Content-Type": "text/plain"}
+
+
 @app.route("/")
 def home():
     if "user" in session:
