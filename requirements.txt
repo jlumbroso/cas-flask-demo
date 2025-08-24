@@ -1,3 +1,3 @@
-Flask>=2.3,<4.0
-flask-cas-ng>=1.0.1
+Flask>=3.0,<3.2
 gunicorn>=21.2
+python-cas>=1.6

@@ -1,17 +1,14 @@
+
 services:
   - type: web
     name: cas-flask-demo
-    runtime: docker
-    dockerfilePath: ./Dockerfile
+    env: docker
     plan: free
-    region: oregon
-    healthCheckPath: /healthz
+    autoDeploy: true
     envVars:
-      - key: CAS_SERVER
-        sync: false
-      - key: CAS_LOGIN_ROUTE
-        value: /index.php/login
-      - key: CAS_VALIDATE_ROUTE
-        value: /serviceValidate.php
       - key: SECRET_KEY
         generateValue: true
+      - key: CAS_SERVER_BASE
+        value: https://alliance.seas.upenn.edu/~lumbroso/cgi-bin/cas/index.php/
+      - key: CAS_VERIFY_SSL
+        value: "true"
