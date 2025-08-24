@@ -9,4 +9,4 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: CAS_SERVER_ROOT
-        value: "https://alliance.seas.upenn.edu/~lumbroso/cgi-bin/cas/index.php/"
+        value: "https://alliance.seas.upenn.edu/~lumbroso/cgi-bin/cas/"
