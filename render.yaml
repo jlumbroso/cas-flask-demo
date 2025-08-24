@@ -1,14 +1,15 @@
-
 services:
   - type: web
     name: cas-flask-demo
     env: docker
     plan: free
     autoDeploy: true
+    healthCheckPath: /healthz
     envVars:
       - key: SECRET_KEY
         generateValue: true
+      # Base should NOT include index.php
       - key: CAS_SERVER_BASE
-        value: https://alliance.seas.upenn.edu/~lumbroso/cgi-bin/cas/index.php/
+        value: https://alliance.seas.upenn.edu/~lumbroso/cgi-bin/cas/
       - key: CAS_VERIFY_SSL
         value: "true"
